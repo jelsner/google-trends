@@ -5,10 +5,13 @@ date: "2026-03-06"
 editor_options: 
   chunk_output_type: console
 ---
+
+## Comparisons across disciplines
+
 ```{r}
 # ============================================================
 # Google Trends demand scoring for WFDF taxonomy activities
-# with alias terms, anchored scaling, and pseudo-log plotting
+# using automatic OR queries for aliases
 # ============================================================
 
 # -----------------------------
@@ -29,14 +32,13 @@ library(scales)
 # -----------------------------
 # 1) Settings
 # -----------------------------
-time_window <- "2018-03-07 2026-03-06"   # explicit range is more stable than "today 5-y"
-geo_code    <- ""                        # worldwide
+time_window <- "2021-03-07 2026-03-06"
+geo_code    <- ""     # "" = worldwide, "US" = United States
 gprop_type  <- "web"
-n_rep       <- 2                         # repeated pulls to reduce sampling noise
-sleep_sec   <- 1
-low_value   <- 0.5                       # treat "<1" as 0.5
+n_rep       <- 1
+sleep_sec   <- 20
+low_value   <- 0.5
 
-# Relative-demand score cutpoints (Disc Golf = 1)
 score_google_demand <- function(x) {
   case_when(
     is.na(x)        ~ NA_integer_,
@@ -51,60 +53,72 @@ score_google_demand <- function(x) {
 
 # -----------------------------
 # 2) Activity aliases
-#    Add/edit these as needed
 # -----------------------------
 activity_aliases <- list(
   "Ultimate" = c("ultimate frisbee"),
   "Beach Ultimate" = c("beach ultimate"),
   "Goaltimate" = c("goaltimate"),
   "Hot Box" = c("hot box frisbee"),
-  "World War Free" = c("world war free frisbee"),
-  "Double Disc Court (DDC)" = c("double disc court", "ddc frisbee", "escape frisbee"),
+  "World War Free" = c("world war frisbee"),
+  "Double Disc Court" = c("double disc court", "ddc frisbee", "escape frisbee"),
   "Guts" = c("guts frisbee"),
   "Flutter Guts" = c("flutter guts frisbee"),
   "DodgeDisc" = c("dodgedisc", "dodgebee"),
   "Battle Royale" = c("battle royale frisbee"),
   "Discflect / KanJam" = c("kanjam", "discflect"),
   "Frisbee Hoops" = c("frisbee hoops"),
-  "Polish Horseshoes / BeersBee" = c("beersbee", "polish horseshoes frisbee"),
+  "BeersBee" = c("beersbee", "polish horseshoes frisbee"),
   "Frisbee H-O-R-S-E" = c("frisbee horse"),
   "Accuracy" = c("accuracy frisbee"),
   "Disc Golf" = c("disc golf"),
   "Speed Lid Golf" = c("speed lid golf"),
   "Distance" = c("distance frisbee"),
-  "Self-Caught Flight (MTA, TRC)" = c("self caught flight frisbee", "mta frisbee", "trc frisbee"),
-  "Discathon" = c("discathon"),
+  "Self-Caught Flight" = c("mta frisbee", "trc frisbee", "throw run catch"),
+  "Discathon" = c("discathon frisbee", "discathon disc"),
   "Freestyle" = c("freestyle frisbee"),
-  "Canine Disc (Disc Dog)" = c("disc dog", "canine disc"),
-  "Overall" = c("overall flying disc")
-)
-
-activity_terms <- purrr::imap_dfr(
-  activity_aliases,
-  ~ tibble(activity = .y, term = .x)
+  "Canine Disc" = c("disc dog", "canine disc"),
+  "Overall" = c("overall flying disc", "overall frisbee")
 )
 
 # -----------------------------
-# 3) Anchor groups
-#    Terms can appear in multiple groups on purpose
+# 3) Build one OR query per activity
 # -----------------------------
-groups <- list(
-  g1 = c("disc golf", "ultimate frisbee", "kanjam", "freestyle frisbee"),
-  g2 = c("ultimate frisbee", "beach ultimate", "goaltimate", "hot box frisbee"),
-  g3 = c("ultimate frisbee", "guts frisbee", "double disc court", "ddc frisbee", "escape frisbee"),
-  g4 = c("guts frisbee", "flutter guts frisbee", "battle royale frisbee", "beersbee"),
-  g5 = c("kanjam", "discflect", "frisbee horse", "accuracy frisbee"),
-  g6 = c("disc golf", "speed lid golf", "distance frisbee", "discathon"),
-  g7 = c("freestyle frisbee", "disc dog", "canine disc", "self caught flight frisbee"),
-  g8 = c("hot box frisbee", "world war free frisbee", "goaltimate", "battle royale frisbee"),
-  g9 = c("dodgedisc", "dodgebee", "ultimate frisbee"),
-  g10 = c("overall flying disc", "freestyle frisbee", "self caught flight frisbee"),
-  g11 = c("disc dog", "canine disc", "kanjam"),
-  g12 = c("mta frisbee", "trc frisbee", "self caught flight frisbee")
+build_or_query <- function(terms) {
+  paste(unique(terms), collapse = " + ")
+}
+
+activity_queries <- tibble(
+  activity = names(activity_aliases),
+  query_term = purrr::map_chr(activity_aliases, build_or_query)
 )
 
+# inspect if desired
+print(activity_queries, n = nrow(activity_queries))
+
 # -----------------------------
-# 4) Helpers
+# 4) Anchor groups using OR queries
+#    Each entry here should match an activity name above
+# -----------------------------
+group_activities <- list(
+  g1 = c("Disc Golf", "Ultimate", "Discflect / KanJam", "Freestyle"),
+  g2 = c("Ultimate", "Beach Ultimate", "Goaltimate", "Hot Box"),
+  g3 = c("Ultimate", "Guts", "Double Disc Court", "DodgeDisc"),
+  g4 = c("Guts", "Flutter Guts", "Battle Royale", "BeersBee"),
+  g5 = c("Discflect / KanJam", "Frisbee H-O-R-S-E", "Accuracy", "Frisbee Hoops"),
+  g6 = c("Disc Golf", "Speed Lid Golf", "Distance", "Discathon"),
+  g7 = c("Freestyle", "Canine Disc", "Self-Caught Flight", "Overall"),
+  g8 = c("Hot Box", "World War Free", "Goaltimate", "Battle Royale")
+)
+
+# convert activity groups to Google query groups
+groups <- purrr::map(group_activities, function(act_vec) {
+  activity_queries %>%
+    filter(activity %in% act_vec) %>%
+    pull(query_term)
+})
+
+# -----------------------------
+# 5) Helpers
 # -----------------------------
 clean_hits <- function(x, low_value = 0.5) {
   case_when(
@@ -118,9 +132,10 @@ gt_pull_summary <- function(keywords,
                             time,
                             geo = "",
                             gprop = "web",
-                            n_rep = 2,
+                            n_rep = 1,
                             low_value = 0.5,
-                            sleep_seconds = 1,
+                            sleep_seconds = 10,
+                            max_attempts = 5,
                             verbose = TRUE) {
 
   one_pull <- function(rep_id) {
@@ -128,14 +143,33 @@ gt_pull_summary <- function(keywords,
       message("Pulling: ", paste(keywords, collapse = " | "), " [rep ", rep_id, "]")
     }
 
-    out <- tryCatch(
-      gtrends(keyword = keywords, time = time, geo = geo, gprop = gprop),
-      error = function(e) {
-        message("  Failed: ", paste(keywords, collapse = " | "),
-                " [rep ", rep_id, "] -> ", conditionMessage(e))
-        NULL
+    attempt <- 1
+    out <- NULL
+
+    while (attempt <= max_attempts && is.null(out)) {
+      out <- tryCatch(
+        gtrends(keyword = keywords, time = time, geo = geo, gprop = gprop),
+        error = function(e) {
+          msg <- conditionMessage(e)
+
+          if (grepl("429", msg, fixed = TRUE)) {
+            wait_time <- sleep_seconds * (2^(attempt - 1))
+            message("  429 rate limit hit. Waiting ", wait_time,
+                    " seconds before retry ", attempt, "/", max_attempts)
+            Sys.sleep(wait_time)
+          } else {
+            message("  Failed: ", paste(keywords, collapse = " | "),
+                    " [rep ", rep_id, "] -> ", msg)
+          }
+
+          NULL
+        }
+      )
+
+      if (is.null(out)) {
+        attempt <- attempt + 1
       }
-    )
+    }
 
     if (is.null(out) || is.null(out$interest_over_time) || nrow(out$interest_over_time) == 0) {
       return(NULL)
@@ -151,10 +185,10 @@ gt_pull_summary <- function(keywords,
       filter(!is.na(hits_num))
   }
 
-  pulls <- map(seq_len(n_rep), function(i) {
+  pulls <- purrr::map(seq_len(n_rep), function(i) {
     if (i > 1) Sys.sleep(sleep_seconds)
     one_pull(i)
-  }) %>% compact()
+  }) %>% purrr::compact()
 
   if (length(pulls) == 0) return(NULL)
 
@@ -309,11 +343,15 @@ build_gtrends_index <- function(groups,
 }
 
 # -----------------------------
-# 5) Run term-level analysis
+# 6) Run analysis
 # -----------------------------
+base_term <- activity_queries %>%
+  filter(activity == "Disc Golf") %>%
+  pull(query_term)
+
 gt_results <- build_gtrends_index(
   groups = groups,
-  base_term = "disc golf",
+  base_term = base_term,
   time = time_window,
   geo = geo_code,
   gprop = gprop_type,
@@ -324,107 +362,302 @@ gt_results <- build_gtrends_index(
 )
 
 # -----------------------------
-# 6) Join terms back to activities
-#    and choose best term per activity
+# 7) Final activity table
 # -----------------------------
-term_level_table <- activity_terms %>%
-  left_join(gt_results, by = c("term" = "keyword")) %>%
+final_table <- activity_queries %>%
+  left_join(gt_results, by = c("query_term" = "keyword")) %>%
   mutate(
     GT_note = case_when(
-      is.na(GT_relative) ~ "No reliable Google Trends signal with current search phrase/grouping",
+      is.na(GT_relative) ~ "No reliable Google Trends signal with current OR query/grouping",
       pct_zero >= 0.95 ~ "Extremely intermittent search signal",
       pct_zero >= 0.75 ~ "Sparse search signal",
       TRUE ~ "Stable enough for relative comparison"
     )
   ) %>%
-  arrange(activity, desc(GT_relative), desc(mean_hits))
-
-activity_level_table <- term_level_table %>%
-  group_by(activity) %>%
-  arrange(desc(GT_relative), desc(mean_hits), .by_group = TRUE) %>%
-  slice(1) %>%
-  ungroup() %>%
-  mutate(chosen_term = term) %>%
+  rename(chosen_query = query_term) %>%
   select(
-    activity, chosen_term,
+    activity, chosen_query,
     GT_relative, GT_visibility, GT_score, GT_confidence, GT_note,
     mean_hits, pct_zero, pct_lt1, max_hits,
     bridge_steps, group_id, query
   ) %>%
   arrange(desc(GT_relative), activity)
 
-# -----------------------------
-# 7) Print tables
-# -----------------------------
-print(term_level_table, n = nrow(term_level_table))
-print(activity_level_table, n = nrow(activity_level_table))
+print(final_table, n = nrow(final_table))
 
 # -----------------------------
-# 8) Save CSVs
+# 8) Save CSV
 # -----------------------------
-write_csv(term_level_table, "wfdf_google_demand_term_level.csv")
-write_csv(activity_level_table, "wfdf_google_demand_activity_level.csv")
+write_csv(final_table, "wfdf_google_demand_or_queries.csv")
 
 # -----------------------------
-# 9) Pseudo-log plot
+# 9) Plot
 # -----------------------------
-plot_data <- activity_level_table %>%
+plot_data <- final_table %>%
   mutate(
     GT_plot = case_when(
-      is.na(GT_relative) ~ 0,
+      is.na(GT_relative) ~ 1e-6,
+      GT_relative <= 0   ~ 1e-6,
       TRUE ~ GT_relative
     )
   )
 
-final_table %>%
-  mutate(GT_plot = ifelse(is.na(GT_relative), 1e-6, pmax(GT_relative, 1e-6))) %>%
-  ggplot(aes(x = GT_plot, y = reorder(activity, GT_plot))) +
+p <- ggplot(plot_data, aes(x = GT_plot, y = reorder(activity, GT_plot))) +
   geom_point(size = 2.8) +
-  scale_x_log10(breaks = c(0, .0001, .001, .01, .1, 1),
-                labels = c(0, "0.0001", .001, .01, .1, 1)) +
+  scale_x_log10(
+    breaks = c(1e-6, 1e-4, 1e-2, 1),
+    labels = c("0*", "0.0001", "0.01", "1")
+  ) +
   theme_minimal() +
   labs(
     x = "Relative Google demand (Disc Golf = 1, log scale)",
     y = NULL,
-    title = "Google Trends demand for WFDF taxonomy activities"
-  )
-
-p <- plot_data %>%
-  mutate(GT_plot = ifelse(is.na(GT_relative), 1e-6, pmax(GT_relative, 1e-6))) %>%
-  ggplot(aes(x = GT_plot, y = reorder(activity, GT_plot))) +
-  geom_point(size = 2.8) +
-  scale_x_log10(breaks = c(0, .0001, .001, .01, .1, 1),
-                labels = c(0, "0.0001", .001, .01, .1, 1)) +
-  theme_minimal() +
-  labs(
-    x = "Relative Google demand (Disc Golf = 1, log scale)",
-    y = NULL,
-    title = "Google Trends demand for WFDF taxonomy activities"
+    title = "Google Trends demand for WFDF taxonomy activities",
+    subtitle = paste("Alias terms combined with Google OR queries:", time_window)
   )
 
 print(p)
 
 ggsave(
-  filename = "wfdf_google_demand_activity_plot.png",
+  filename = "wfdf_google_demand_or_queries_plot.png",
   plot = p,
   width = 9,
   height = 7,
   dpi = 300
 )
-
-plot_data <- activity_level_table %>%
-  mutate(
-    GT_vis_plot = ifelse(is.na(GT_visibility), min(GT_visibility, na.rm = TRUE) - 0.5, GT_visibility)
-  )
-
-p2 <- ggplot(plot_data, aes(x = GT_vis_plot, y = reorder(activity, GT_vis_plot))) +
-  geom_point(size = 2.8) +
-  theme_minimal() +
-  labs(
-    x = "Google Trends visibility index",
-    y = NULL,
-    title = "Google Trends visibility for WFDF taxonomy activities"
-  )
-
-print(p2)
 ```
+
+## Time series of individual events
+
+```{r}
+# ============================================================
+# Reusable Google Trends function for a chosen flying-disc activity
+# ============================================================
+
+# -----------------------------
+# Packages
+# -----------------------------
+pkgs <- c("gtrendsR", "dplyr", "ggplot2", "lubridate", "readr", "tibble")
+to_install <- pkgs[!sapply(pkgs, requireNamespace, quietly = TRUE)]
+if (length(to_install) > 0) install.packages(to_install)
+
+library(gtrendsR)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(readr)
+library(tibble)
+
+# -----------------------------
+# Activity aliases
+# -----------------------------
+activity_aliases <- list(
+  "Ultimate" = c("ultimate frisbee"),
+  "Beach Ultimate" = c("beach ultimate"),
+  "Goaltimate" = c("goaltimate"),
+  "Hot Box" = c("hot box frisbee"),
+  "World War Free" = c("world war frisbee"),
+  "Double Disc Court" = c("double disc court", "ddc frisbee", "escape frisbee"),
+  "Guts" = c("guts frisbee"),
+  "Flutter Guts" = c("flutter guts frisbee"),
+  "DodgeDisc" = c("dodgedisc", "dodgebee"),
+  "Battle Royale" = c("battle royale frisbee"),
+  "Discflect / KanJam" = c("kanjam", "discflect"),
+  "Frisbee Hoops" = c("frisbee hoops"),
+  "BeersBee" = c("beersbee", "polish horseshoes frisbee"),
+  "Frisbee H-O-R-S-E" = c("frisbee horse"),
+  "Accuracy" = c("accuracy frisbee"),
+  "Disc Golf" = c("disc golf"),
+  "Speed Lid Golf" = c("speed lid golf"),
+  "Distance" = c("distance frisbee"),
+  "Self-Caught Flight" = c("mta frisbee", "trc frisbee", "throw run catch"),
+  "Discathon" = c("discathon frisbee", "discathon disc"),
+  "Freestyle" = c("freestyle frisbee"),
+  "Canine Disc" = c("disc dog", "canine disc"),
+  "Overall" = c("overall flying disc", "overall frisbee")
+)
+
+# -----------------------------
+# Helper functions
+# -----------------------------
+build_or_query <- function(terms) {
+  paste(unique(terms), collapse = " + ")
+}
+
+clean_hits <- function(x, low_value = 0.5) {
+  dplyr::case_when(
+    x == "<1" ~ low_value,
+    x == ""   ~ 0,
+    TRUE      ~ suppressWarnings(as.numeric(x))
+  )
+}
+
+aggregate_dates <- function(x, unit = c("month", "year")) {
+  unit <- match.arg(unit)
+  if (unit == "month") {
+    lubridate::floor_date(x, unit = "month")
+  } else {
+    lubridate::floor_date(x, unit = "year")
+  }
+}
+
+safe_filename <- function(x) {
+  gsub("[^A-Za-z0-9]+", "_", x)
+}
+
+# -----------------------------
+# Main function
+# -----------------------------
+plot_activity_trends <- function(chosen_activity,
+                                 agg_unit = c("month", "year"),
+                                 geo_code = "",
+                                 time_window = "2021-03-07 2026-03-06",
+                                 gprop_type = "web",
+                                 low_value = 0.5,
+                                 save_outputs = TRUE,
+                                 output_dir = ".",
+                                 verbose = TRUE) {
+  
+  agg_unit <- match.arg(agg_unit)
+  
+  if (!chosen_activity %in% names(activity_aliases)) {
+    stop(
+      "chosen_activity not found. Valid choices are:\n",
+      paste(names(activity_aliases), collapse = ", ")
+    )
+  }
+  
+  chosen_terms <- activity_aliases[[chosen_activity]]
+  chosen_query <- build_or_query(chosen_terms)
+  
+  if (verbose) {
+    message("Chosen activity: ", chosen_activity)
+    message("Chosen query: ", chosen_query)
+    message("Aggregation: ", agg_unit)
+    message("Geo: ", ifelse(geo_code == "", "Worldwide", geo_code))
+  }
+  
+  gt <- gtrendsR::gtrends(
+    keyword = chosen_query,
+    time = time_window,
+    geo = geo_code,
+    gprop = gprop_type
+  )
+  
+  gt_raw <- tibble::as_tibble(gt$interest_over_time) %>%
+    dplyr::transmute(
+      date = as.Date(date),
+      keyword = as.character(keyword),
+      hits = clean_hits(hits, low_value = low_value)
+    )
+  
+  gt_agg <- gt_raw %>%
+    dplyr::mutate(period = aggregate_dates(date, unit = agg_unit)) %>%
+    dplyr::group_by(period, keyword) %>%
+    dplyr::summarise(
+      avg_hits = mean(hits, na.rm = TRUE),
+      pct_zero = mean(hits == 0, na.rm = TRUE),
+      max_hit = max(hits, na.rm = TRUE),
+      n_obs = dplyr::n(),
+      .groups = "drop"
+    )
+  
+  subtitle_geo <- ifelse(geo_code == "", "Worldwide", geo_code)
+  ylab_text <- ifelse(
+    agg_unit == "month",
+    "Monthly Google Trends index",
+    "Yearly Google Trends index"
+  )
+  
+  p <- ggplot(gt_agg, aes(x = period, y = avg_hits)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 2) +
+    geom_smooth(method = "loess", se = FALSE, linewidth = .5, color = "grey90") +
+    theme_minimal() +
+    labs(
+      title = paste("Google Trends time series for", chosen_activity),
+      subtitle = paste0(
+        "OR query: ", chosen_query,
+        " | Aggregation: ", agg_unit,
+        " | Geo: ", subtitle_geo
+      ),
+      x = NULL,
+      y = ylab_text
+    )
+  
+  if (save_outputs) {
+    safe_name <- safe_filename(chosen_activity)
+    
+    raw_file <- file.path(output_dir, paste0("google_trends_raw_", safe_name, ".csv"))
+    agg_file <- file.path(output_dir, paste0("google_trends_", agg_unit, "_", safe_name, ".csv"))
+    plot_file <- file.path(output_dir, paste0("google_trends_", agg_unit, "_", safe_name, ".png"))
+    
+    readr::write_csv(gt_raw, raw_file)
+    readr::write_csv(gt_agg, agg_file)
+    
+    ggplot2::ggsave(
+      filename = plot_file,
+      plot = p,
+      width = 9,
+      height = 5,
+      dpi = 300
+    )
+    
+    if (verbose) {
+      message("Saved raw data to: ", raw_file)
+      message("Saved aggregated data to: ", agg_file)
+      message("Saved plot to: ", plot_file)
+    }
+  }
+  
+  list(
+    activity = chosen_activity,
+    query = chosen_query,
+    raw_data = gt_raw,
+    aggregated_data = gt_agg,
+    plot = p
+  )
+}
+```
+
+Run it
+
+```{r}
+res_ddc <- plot_activity_trends(
+  chosen_activity = "Double Disc Court",
+  agg_unit = "year",
+  geo_code = "",
+  time_window = "2015-03-07 2026-03-06"
+)
+
+res_ddc$plot
+head(res_ddc$aggregated_data)
+```
+
+```{r}
+res_b_ulti <- plot_activity_trends(
+  chosen_activity = "Beach Ultimate",
+  agg_unit = "year",
+  geo_code = "",
+  time_window = "2015-03-07 2026-03-06"
+)
+
+res_b_ulti$plot
+head(res_b_ulti$aggregated_data)
+```
+
+```{r}
+activities_to_run <- c("Double Disc Court", "Ultimate", "Disc Golf")
+
+results <- lapply(activities_to_run, function(act) {
+  plot_activity_trends(
+    chosen_activity = act,
+    agg_unit = "month",
+    geo_code = "",
+    save_outputs = TRUE
+  )
+})
+
+names(results) <- activities_to_run
+```
+
