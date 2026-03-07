@@ -5,14 +5,16 @@ date: "2026-03-06"
 editor_options: 
   chunk_output_type: console
 ---
-
 ```{r}
 # ============================================================
 # Google Trends demand scoring for WFDF taxonomy activities
+# with alias terms, anchored scaling, and pseudo-log plotting
 # ============================================================
 
-# Packages
-pkgs <- c("gtrendsR", "dplyr", "purrr", "tibble", "stringr", "readr")
+# -----------------------------
+# 0) Packages
+# -----------------------------
+pkgs <- c("gtrendsR", "dplyr", "purrr", "tibble", "readr", "ggplot2", "scales")
 to_install <- pkgs[!sapply(pkgs, requireNamespace, quietly = TRUE)]
 if (length(to_install) > 0) install.packages(to_install)
 
@@ -20,22 +22,21 @@ library(gtrendsR)
 library(dplyr)
 library(purrr)
 library(tibble)
-library(stringr)
 library(readr)
+library(ggplot2)
+library(scales)
 
-# ------------------------------------------------------------
+# -----------------------------
 # 1) Settings
-# ------------------------------------------------------------
-
-time_window <- "2021-03-07 2026-03-06"   # explicit date range; more stable than "today 5-y"
+# -----------------------------
+time_window <- "2018-03-07 2026-03-06"   # explicit range is more stable than "today 5-y"
 geo_code    <- ""                        # worldwide
 gprop_type  <- "web"
-n_rep       <- 2                         # repeat pulls to reduce sampling noise
+n_rep       <- 2                         # repeated pulls to reduce sampling noise
 sleep_sec   <- 1
 low_value   <- 0.5                       # treat "<1" as 0.5
 
-# Score breaks on relative scale after anchoring to disc golf = 1
-# Tuned for highly skewed niche-sport demand
+# Relative-demand score cutpoints (Disc Golf = 1)
 score_google_demand <- function(x) {
   case_when(
     is.na(x)        ~ NA_integer_,
@@ -48,60 +49,63 @@ score_google_demand <- function(x) {
   )
 }
 
-# ------------------------------------------------------------
-# 2) Activity dictionary
-#    "activity" = taxonomy label
-#    "term"     = Google Trends search phrase
-# ------------------------------------------------------------
-
-activity_dict <- tribble(
-  ~activity,                                   ~term,
-  "Ultimate",                                  "ultimate frisbee",
-  "Beach Ultimate",                            "beach ultimate",
-  "Goaltimate",                                "goaltimate",
-  "Hot Box",                                   "hot box frisbee",
-  "World War",                                 "world war frisbee",
-  "Double Disc Court (DDC - Classic or Escape)","double disc court",
-  "Guts",                                      "guts frisbee",
-  "Flutter Guts",                              "flutter guts frisbee",
-  "DodgeDisc",                                 "dodgedisc",
-  "Battle Royale",                             "battle royale frisbee",
-  "Discflect / KanJam",                        "kanjam",
-  "Frisbee Hoops",                             "frisbee hoops",
-  "Polish Horseshoes / BeersBee",              "beersbee",
-  "Frisbee H-O-R-S-E",                         "frisbee horse",
-  "Accuracy",                                  "accuracy frisbee",
-  "Disc Golf",                                 "disc golf",
-  "Speed Lid Golf",                            "speed lid golf",
-  "Distance",                                  "distance frisbee",
-  "Self-Caught Flight (MTA, TRC)",             "self caught flight frisbee",
-  "Discathon",                                 "discathon",
-  "Freestyle",                                 "freestyle frisbee",
-  "Canine Disc (Disc Dog)",                    "disc dog",
-  "Overall",                                   "overall flying disc"
+# -----------------------------
+# 2) Activity aliases
+#    Add/edit these as needed
+# -----------------------------
+activity_aliases <- list(
+  "Ultimate" = c("ultimate frisbee"),
+  "Beach Ultimate" = c("beach ultimate"),
+  "Goaltimate" = c("goaltimate"),
+  "Hot Box" = c("hot box frisbee"),
+  "World War Free" = c("world war free frisbee"),
+  "Double Disc Court (DDC)" = c("double disc court", "ddc frisbee", "escape frisbee"),
+  "Guts" = c("guts frisbee"),
+  "Flutter Guts" = c("flutter guts frisbee"),
+  "DodgeDisc" = c("dodgedisc", "dodgebee"),
+  "Battle Royale" = c("battle royale frisbee"),
+  "Discflect / KanJam" = c("kanjam", "discflect"),
+  "Frisbee Hoops" = c("frisbee hoops"),
+  "Polish Horseshoes / BeersBee" = c("beersbee", "polish horseshoes frisbee"),
+  "Frisbee H-O-R-S-E" = c("frisbee horse"),
+  "Accuracy" = c("accuracy frisbee"),
+  "Disc Golf" = c("disc golf"),
+  "Speed Lid Golf" = c("speed lid golf"),
+  "Distance" = c("distance frisbee"),
+  "Self-Caught Flight (MTA, TRC)" = c("self caught flight frisbee", "mta frisbee", "trc frisbee"),
+  "Discathon" = c("discathon"),
+  "Freestyle" = c("freestyle frisbee"),
+  "Canine Disc (Disc Dog)" = c("disc dog", "canine disc"),
+  "Overall" = c("overall flying disc")
 )
 
-# ------------------------------------------------------------
-# 3) Anchor groups
-#    Each group shares at least one bridge term with another group.
-#    Disc golf is the global anchor = 1.
-# ------------------------------------------------------------
+activity_terms <- purrr::imap_dfr(
+  activity_aliases,
+  ~ tibble(activity = .y, term = .x)
+)
 
+# -----------------------------
+# 3) Anchor groups
+#    Terms can appear in multiple groups on purpose
+# -----------------------------
 groups <- list(
   g1 = c("disc golf", "ultimate frisbee", "kanjam", "freestyle frisbee"),
   g2 = c("ultimate frisbee", "beach ultimate", "goaltimate", "hot box frisbee"),
-  g3 = c("ultimate frisbee", "guts frisbee", "double disc court", "dodgedisc"),
+  g3 = c("ultimate frisbee", "guts frisbee", "double disc court", "ddc frisbee", "escape frisbee"),
   g4 = c("guts frisbee", "flutter guts frisbee", "battle royale frisbee", "beersbee"),
-  g5 = c("kanjam", "frisbee horse", "frisbee hoops", "accuracy frisbee"),
+  g5 = c("kanjam", "discflect", "frisbee horse", "accuracy frisbee"),
   g6 = c("disc golf", "speed lid golf", "distance frisbee", "discathon"),
-  g7 = c("freestyle frisbee", "disc dog", "self caught flight frisbee", "overall flying disc"),
-  g8 = c("hot box frisbee", "world war frisbee", "goaltimate", "battle royale frisbee")
+  g7 = c("freestyle frisbee", "disc dog", "canine disc", "self caught flight frisbee"),
+  g8 = c("hot box frisbee", "world war free frisbee", "goaltimate", "battle royale frisbee"),
+  g9 = c("dodgedisc", "dodgebee", "ultimate frisbee"),
+  g10 = c("overall flying disc", "freestyle frisbee", "self caught flight frisbee"),
+  g11 = c("disc dog", "canine disc", "kanjam"),
+  g12 = c("mta frisbee", "trc frisbee", "self caught flight frisbee")
 )
 
-# ------------------------------------------------------------
-# 4) Helper to clean Google Trends hits
-# ------------------------------------------------------------
-
+# -----------------------------
+# 4) Helpers
+# -----------------------------
 clean_hits <- function(x, low_value = 0.5) {
   case_when(
     x == "<1" ~ low_value,
@@ -109,10 +113,6 @@ clean_hits <- function(x, low_value = 0.5) {
     TRUE      ~ suppressWarnings(as.numeric(x))
   )
 }
-
-# ------------------------------------------------------------
-# 5) Pull and summarize one group
-# ------------------------------------------------------------
 
 gt_pull_summary <- function(keywords,
                             time,
@@ -160,7 +160,6 @@ gt_pull_summary <- function(keywords,
 
   dat <- bind_rows(pulls)
 
-  # Summaries by keyword within each replicate
   rep_summaries <- dat %>%
     group_by(keyword, rep) %>%
     summarise(
@@ -171,7 +170,6 @@ gt_pull_summary <- function(keywords,
       .groups = "drop"
     )
 
-  # Average over replicates
   rep_summaries %>%
     group_by(keyword) %>%
     summarise(
@@ -186,10 +184,6 @@ gt_pull_summary <- function(keywords,
     ) %>%
     mutate(query = paste(keywords, collapse = " | "))
 }
-
-# ------------------------------------------------------------
-# 6) Build anchored Google demand index
-# ------------------------------------------------------------
 
 build_gtrends_index <- function(groups,
                                 base_term,
@@ -245,8 +239,12 @@ build_gtrends_index <- function(groups,
   group_steps[start_group] <- 0
 
   changed <- TRUE
-  while (changed) {
+  iter <- 0
+  max_iter <- length(group_ids) * 10
+
+  while (changed && iter < max_iter) {
     changed <- FALSE
+    iter <- iter + 1
 
     for (i in seq_len(nrow(overlaps))) {
       gf <- overlaps$group_from[i]
@@ -295,15 +293,11 @@ build_gtrends_index <- function(groups,
     left_join(out_best, by = "keyword") %>%
     mutate(
       GT_relative = common_value / base_value,
-
-      # auxiliary index for extreme zero inflation
       GT_visibility = case_when(
         is.na(mean_hits) ~ NA_real_,
         TRUE ~ log10(mean_hits + 0.001) + 0.5 * (1 - pct_zero)
       ),
-
       GT_score = score_google_demand(GT_relative),
-
       GT_confidence = case_when(
         is.na(GT_relative) ~ "Insufficient signal",
         bridge_steps == 0 & n_nonzero_rep >= 2 & pct_zero < 0.50 ~ "High",
@@ -314,10 +308,9 @@ build_gtrends_index <- function(groups,
     arrange(desc(GT_relative))
 }
 
-# ------------------------------------------------------------
-# 7) Run the model
-# ------------------------------------------------------------
-
+# -----------------------------
+# 5) Run term-level analysis
+# -----------------------------
 gt_results <- build_gtrends_index(
   groups = groups,
   base_term = "disc golf",
@@ -330,25 +323,12 @@ gt_results <- build_gtrends_index(
   verbose = TRUE
 )
 
-# ------------------------------------------------------------
-# 8) Attach taxonomy activity names
-# ------------------------------------------------------------
-
-final_table <- activity_dict %>%
+# -----------------------------
+# 6) Join terms back to activities
+#    and choose best term per activity
+# -----------------------------
+term_level_table <- activity_terms %>%
   left_join(gt_results, by = c("term" = "keyword")) %>%
-  select(
-    activity, term,
-    GT_relative, GT_visibility, GT_score, GT_confidence,
-    mean_hits, pct_zero, pct_lt1, max_hits,
-    bridge_steps, group_id, query
-  ) %>%
-  arrange(desc(GT_relative), activity)
-
-# ------------------------------------------------------------
-# 9) Optional manual review columns
-# ------------------------------------------------------------
-
-final_table <- final_table %>%
   mutate(
     GT_note = case_when(
       is.na(GT_relative) ~ "No reliable Google Trends signal with current search phrase/grouping",
@@ -356,22 +336,45 @@ final_table <- final_table %>%
       pct_zero >= 0.75 ~ "Sparse search signal",
       TRUE ~ "Stable enough for relative comparison"
     )
+  ) %>%
+  arrange(activity, desc(GT_relative), desc(mean_hits))
+
+activity_level_table <- term_level_table %>%
+  group_by(activity) %>%
+  arrange(desc(GT_relative), desc(mean_hits), .by_group = TRUE) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(chosen_term = term) %>%
+  select(
+    activity, chosen_term,
+    GT_relative, GT_visibility, GT_score, GT_confidence, GT_note,
+    mean_hits, pct_zero, pct_lt1, max_hits,
+    bridge_steps, group_id, query
+  ) %>%
+  arrange(desc(GT_relative), activity)
+
+# -----------------------------
+# 7) Print tables
+# -----------------------------
+print(term_level_table, n = nrow(term_level_table))
+print(activity_level_table, n = nrow(activity_level_table))
+
+# -----------------------------
+# 8) Save CSVs
+# -----------------------------
+write_csv(term_level_table, "wfdf_google_demand_term_level.csv")
+write_csv(activity_level_table, "wfdf_google_demand_activity_level.csv")
+
+# -----------------------------
+# 9) Pseudo-log plot
+# -----------------------------
+plot_data <- activity_level_table %>%
+  mutate(
+    GT_plot = case_when(
+      is.na(GT_relative) ~ 0,
+      TRUE ~ GT_relative
+    )
   )
-
-# ------------------------------------------------------------
-# 10) Print and save
-# ------------------------------------------------------------
-
-print(final_table, n = nrow(final_table))
-
-write_csv(final_table, "wfdf_google_demand_scores.csv")
-
-# ------------------------------------------------------------
-# 11) Optional quick plot
-# ------------------------------------------------------------
-
-
-library(ggplot2)
 
 final_table %>%
   mutate(GT_plot = ifelse(is.na(GT_relative), 1e-6, pmax(GT_relative, 1e-6))) %>%
@@ -386,20 +389,42 @@ final_table %>%
     title = "Google Trends demand for WFDF taxonomy activities"
   )
 
-final_table %>%
-  mutate(GT_plot = ifelse(is.na(GT_relative), 0, GT_relative)) %>%
+p <- plot_data %>%
+  mutate(GT_plot = ifelse(is.na(GT_relative), 1e-6, pmax(GT_relative, 1e-6))) %>%
   ggplot(aes(x = GT_plot, y = reorder(activity, GT_plot))) +
   geom_point(size = 2.8) +
-  scale_x_continuous(
-    trans = scales::pseudo_log_trans(base = 10),
-    breaks = c(0, 1e-4, 1e-3, 1e-2, 1e-1, 1),
-    labels = label_number()
-  ) +
+  scale_x_log10(breaks = c(0, .0001, .001, .01, .1, 1),
+                labels = c(0, "0.0001", .001, .01, .1, 1)) +
   theme_minimal() +
   labs(
-    x = "Relative Google demand (Disc Golf = 1, pseudo-log scale)",
+    x = "Relative Google demand (Disc Golf = 1, log scale)",
     y = NULL,
     title = "Google Trends demand for WFDF taxonomy activities"
   )
-```
 
+print(p)
+
+ggsave(
+  filename = "wfdf_google_demand_activity_plot.png",
+  plot = p,
+  width = 9,
+  height = 7,
+  dpi = 300
+)
+
+plot_data <- activity_level_table %>%
+  mutate(
+    GT_vis_plot = ifelse(is.na(GT_visibility), min(GT_visibility, na.rm = TRUE) - 0.5, GT_visibility)
+  )
+
+p2 <- ggplot(plot_data, aes(x = GT_vis_plot, y = reorder(activity, GT_vis_plot))) +
+  geom_point(size = 2.8) +
+  theme_minimal() +
+  labs(
+    x = "Google Trends visibility index",
+    y = NULL,
+    title = "Google Trends visibility for WFDF taxonomy activities"
+  )
+
+print(p2)
+```
