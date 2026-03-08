@@ -1,0 +1,342 @@
+---
+title: "YouTube Trends"
+output: html_document
+date: "2026-03-08"
+editor_options: 
+  chunk_output_type: console
+---
+
+Get video ids
+```{r}
+library(httr)
+library(jsonlite)
+
+api_key <- Sys.getenv("YOUTUBE_API_KEY")
+
+url <- "https://www.googleapis.com/youtube/v3/search"
+
+res <- GET(
+  url,
+  query = list(
+    part = "snippet",
+    q = "double disc court",
+    maxResults = 25,
+    type = "video",
+    key = api_key
+  )
+)
+
+dat <- fromJSON(content(res, "text", encoding = "UTF-8"))
+
+video_ids <- dat$items$id$videoId
+```
+
+Get view counts
+```{r}
+url2 <- "https://www.googleapis.com/youtube/v3/videos"
+
+res2 <- GET(
+  url2,
+  query = list(
+    part = "statistics",
+    id = paste(video_ids, collapse = ","),
+    key = api_key
+  )
+)
+
+stats <- fromJSON(content(res2, "text", encoding = "UTF-8"))
+
+views <- as.numeric(stats$items$statistics$viewCount)
+sum(views)
+```
+
+Do it for all disc activities
+
+```{r}
+# ============================================================
+# YouTube demand index for frisbee activities
+# Requires: YOUTUBE_API_KEY in .Renviron
+# ============================================================
+
+# -----------------------------
+# 0) Packages
+# -----------------------------
+pkgs <- c("httr2", "jsonlite", "dplyr", "purrr", "tibble", "readr", "stringr")
+to_install <- pkgs[!sapply(pkgs, requireNamespace, quietly = TRUE)]
+if (length(to_install) > 0) install.packages(to_install)
+
+library(httr2)
+library(jsonlite)
+library(dplyr)
+library(purrr)
+library(tibble)
+library(readr)
+library(stringr)
+
+# -----------------------------
+# 1) Activity aliases
+# -----------------------------
+activity_aliases <- list(
+  "Ultimate" = c("ultimate frisbee"),
+  "Beach Ultimate" = c("beach ultimate"),
+  "Goaltimate" = c("goaltimate"),
+  "Hot Box" = c("hot box frisbee"),
+  "World War Free" = c("world war frisbee"),
+  "Double Disc Court" = c("double disc court", "ddc frisbee", "escape frisbee"),
+  "Guts" = c("guts frisbee"),
+  "Flutter Guts" = c("flutter guts frisbee"),
+  "DodgeDisc" = c("dodgedisc", "dodgebee"),
+  "Battle Royale" = c("battle royale frisbee"),
+  "Discflect / KanJam" = c("kanjam", "discflect"),
+  "Frisbee Hoops" = c("frisbee hoops"),
+  "BeersBee" = c("beersbee", "polish horseshoes frisbee"),
+  "Frisbee H-O-R-S-E" = c("frisbee horse"),
+  "Accuracy" = c("accuracy frisbee"),
+  "Disc Golf" = c("disc golf"),
+  "Speed Lid Golf" = c("speed lid golf"),
+  "Distance" = c("distance frisbee"),
+  "Self-Caught Flight" = c("mta frisbee", "trc frisbee", "throw run catch"),
+  "Discathon" = c("discathon frisbee", "discathon disc"),
+  "Freestyle" = c("freestyle frisbee"),
+  "Canine Disc" = c("disc dog", "canine disc"),
+  "Overall" = c("overall flying disc", "overall frisbee")
+)
+
+# -----------------------------
+# 2) Settings
+# -----------------------------
+api_key <- Sys.getenv("YOUTUBE_API_KEY")
+if (api_key == "") stop("YOUTUBE_API_KEY not found in environment.")
+
+max_results_search <- 25   # per query; search.list max is 50
+sleep_sec <- 0.25          # small pause to be polite
+region_code <- NULL        # e.g. "US" or leave NULL
+published_after <- NULL    # e.g. "2020-01-01T00:00:00Z" or NULL
+
+# -----------------------------
+# 3) Helpers
+# -----------------------------
+build_or_query <- function(terms) {
+  paste(unique(terms), collapse = " | ")
+}
+
+safe_num <- function(x) {
+  suppressWarnings(as.numeric(x))
+}
+
+youtube_search_videos <- function(query,
+                                  api_key,
+                                  max_results = 25,
+                                  region_code = NULL,
+                                  published_after = NULL) {
+  req <- request("https://www.googleapis.com/youtube/v3/search") |>
+    req_url_query(
+      part = "snippet",
+      q = query,
+      type = "video",
+      maxResults = max_results,
+      key = api_key
+    )
+
+  if (!is.null(region_code)) {
+    req <- req |> req_url_query(regionCode = region_code)
+  }
+
+  if (!is.null(published_after)) {
+    req <- req |> req_url_query(publishedAfter = published_after)
+  }
+
+  resp <- req |> req_perform()
+  txt <- resp_body_string(resp)
+  dat <- jsonlite::fromJSON(txt, simplifyDataFrame = TRUE)
+
+  if (is.null(dat$items) || nrow(dat$items) == 0) {
+    return(tibble(
+      video_id = character(),
+      title = character(),
+      channel_title = character(),
+      published_at = character()
+    ))
+  }
+
+  tibble(
+    video_id = dat$items$id$videoId,
+    title = dat$items$snippet$title,
+    channel_title = dat$items$snippet$channelTitle,
+    published_at = dat$items$snippet$publishedAt
+  ) |>
+    distinct(video_id, .keep_all = TRUE)
+}
+
+youtube_video_stats <- function(video_ids, api_key) {
+  if (length(video_ids) == 0) {
+    return(tibble(
+      video_id = character(),
+      view_count = numeric(),
+      like_count = numeric(),
+      comment_count = numeric()
+    ))
+  }
+
+  # videos.list accepts comma-separated IDs; 50 is a safe chunk size
+  chunks <- split(video_ids, ceiling(seq_along(video_ids) / 50))
+
+  map_dfr(chunks, function(ids) {
+    req <- request("https://www.googleapis.com/youtube/v3/videos") |>
+      req_url_query(
+        part = "statistics",
+        id = paste(ids, collapse = ","),
+        key = api_key
+      )
+
+    resp <- req |> req_perform()
+    txt <- resp_body_string(resp)
+    dat <- jsonlite::fromJSON(txt, simplifyDataFrame = TRUE)
+
+    if (is.null(dat$items) || nrow(dat$items) == 0) {
+      return(tibble(
+        video_id = character(),
+        view_count = numeric(),
+        like_count = numeric(),
+        comment_count = numeric()
+      ))
+    }
+
+    tibble(
+      video_id = dat$items$id,
+      view_count = safe_num(dat$items$statistics$viewCount),
+      like_count = safe_num(dat$items$statistics$likeCount),
+      comment_count = safe_num(dat$items$statistics$commentCount)
+    )
+  })
+}
+
+score_youtube_demand <- function(x_rel) {
+  case_when(
+    is.na(x_rel)   ~ NA_integer_,
+    x_rel >= 0.50  ~ 5L,
+    x_rel >= 0.10  ~ 4L,
+    x_rel >= 0.02  ~ 3L,
+    x_rel >= 0.002 ~ 2L,
+    x_rel >= 0.0002 ~ 1L,
+    TRUE ~ 0L
+  )
+}
+
+# -----------------------------
+# 4) Build one OR query per activity
+# -----------------------------
+activity_queries <- tibble(
+  activity = names(activity_aliases),
+  query = map_chr(activity_aliases, build_or_query)
+)
+
+print(activity_queries, n = nrow(activity_queries))
+
+# -----------------------------
+# 5) Pull YouTube results
+# -----------------------------
+youtube_results <- map2_dfr(activity_queries$activity, activity_queries$query, function(activity, query) {
+  message("Searching YouTube for: ", activity, " -> ", query)
+
+  Sys.sleep(sleep_sec)
+
+  vids <- youtube_search_videos(
+    query = query,
+    api_key = api_key,
+    max_results = max_results_search,
+    region_code = region_code,
+    published_after = published_after
+  )
+
+  stats <- youtube_video_stats(vids$video_id, api_key = api_key)
+
+  joined <- vids |>
+    left_join(stats, by = "video_id") |>
+    mutate(
+      activity = activity,
+      query = query
+    )
+
+  if (nrow(joined) == 0) {
+    return(tibble(
+      activity = activity,
+      query = query,
+      video_id = character(),
+      title = character(),
+      channel_title = character(),
+      published_at = character(),
+      view_count = numeric(),
+      like_count = numeric(),
+      comment_count = numeric()
+    ))
+  }
+
+  joined
+})
+
+# -----------------------------
+# 6) Summarise to activity level
+# -----------------------------
+yt_activity <- youtube_results |>
+  group_by(activity, query) |>
+  summarise(
+    n_videos = sum(!is.na(video_id)),
+    total_views = sum(view_count, na.rm = TRUE),
+    median_views = median(view_count, na.rm = TRUE),
+    mean_views = mean(view_count, na.rm = TRUE),
+    max_views = max(view_count, na.rm = TRUE),
+    n_channels = n_distinct(channel_title[!is.na(channel_title)]),
+    .groups = "drop"
+  ) |>
+  mutate(
+    total_views = ifelse(is.infinite(total_views), NA_real_, total_views),
+    median_views = ifelse(is.infinite(median_views), NA_real_, median_views),
+    mean_views = ifelse(is.infinite(mean_views), NA_real_, mean_views),
+    max_views = ifelse(is.infinite(max_views), NA_real_, max_views)
+  )
+
+# -----------------------------
+# 7) Relative index anchored to Disc Golf
+# -----------------------------
+disc_golf_views <- yt_activity |>
+  filter(activity == "Disc Golf") |>
+  pull(total_views)
+
+if (length(disc_golf_views) != 1 || is.na(disc_golf_views) || disc_golf_views <= 0) {
+  stop("Disc Golf anchor did not return a usable total_views value.")
+}
+
+yt_activity <- yt_activity |>
+  mutate(
+    YT_relative = total_views / disc_golf_views,
+    YT_log_index = log10(total_views + 1),
+    YT_score = score_youtube_demand(YT_relative),
+    YT_confidence = case_when(
+      is.na(total_views) | n_videos == 0 ~ "Insufficient signal",
+      n_videos >= 20 & n_channels >= 10 ~ "High",
+      n_videos >= 10 ~ "Medium",
+      TRUE ~ "Low"
+    )
+  ) |>
+  arrange(desc(YT_relative))
+
+# -----------------------------
+# 8) Optional composite visibility
+# -----------------------------
+yt_activity <- yt_activity |>
+  mutate(
+    YT_visibility = log10(total_views + 1) +
+      0.25 * log10(median_views + 1) +
+      0.10 * log10(n_videos + 1)
+  )
+
+# -----------------------------
+# 9) Save outputs
+# -----------------------------
+write_csv(youtube_results, "youtube_frisbee_video_level.csv")
+write_csv(yt_activity, "youtube_frisbee_activity_index.csv")
+
+print(yt_activity, n = nrow(yt_activity))
+```
+
