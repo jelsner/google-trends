@@ -570,10 +570,10 @@ plot_activity_trends <- function(chosen_activity,
   )
   
   p <- ggplot(gt_agg, aes(x = period, y = avg_hits)) +
+    geom_smooth(method = "loess", se = FALSE, linewidth = .5, color = "grey80") +
     geom_line(linewidth = 1) +
     geom_point(size = 2) +
-    geom_smooth(method = "loess", se = FALSE, linewidth = .5, color = "grey90") +
-    theme_minimal() +
+     theme_minimal() +
     labs(
       title = paste("Google Trends time series for", chosen_activity),
       subtitle = paste0(
