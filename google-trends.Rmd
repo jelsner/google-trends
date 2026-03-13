@@ -431,7 +431,7 @@ ggsave(
 
 ```{r}
 # ============================================================
-# Reusable Google Trends function for a chosen flying-disc activity
+# Google Trends function for a chosen flying-disc activity
 # ============================================================
 
 # -----------------------------
@@ -627,7 +627,7 @@ res_ddc <- plot_activity_trends(
   chosen_activity = "Double Disc Court",
   agg_unit = "year",
   geo_code = "",
-  time_window = "2015-03-07 2026-03-06"
+  time_window = "2015-03-13 2026-03-12"
 )
 
 res_ddc$plot
