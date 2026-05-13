@@ -1,0 +1,24 @@
+activity,GT_relative,group
+Disc Golf,1,Group 1: Dominant
+Ultimate,0.14533549345213978,Group 2: Strong
+Canine Disc,0.13058111053250784,Group 2: Strong
+Beach Ultimate,0.03755590101395836,Group 2: Strong
+Discflect / KanJam,0.01312947212096664,Group 2: Strong
+Self-Caught Flight,0.00429612914424579,Group 3: Moderate
+BeersBee,0.00272568466501807,Group 3: Moderate
+Distance,0.00138382611043607,Group 3: Moderate
+Freestyle,3.7127041987309353e-4,Group 3: Moderate
+Double Disc Court,1.252252464643784e-4,Group 4: Weak
+DodgeDisc,1.2058727437310554e-4,Group 4: Weak
+Speed Lid Golf,1.012555690562976e-4,Group 4: Weak
+Goaltimate,9.739119798630872e-5,Group 4: Weak
+Overall,8.839771901740306e-5,Group 4: Weak
+Frisbee H-O-R-S-E,8.181746732983967e-5,Group 4: Weak
+Frisbee Hoops,4.314011913755193e-5,Group 4: Weak
+Accuracy,3.867734819228788e-5,Group 5: Near zero / no signal
+Guts,3.246580463891301e-5,Group 5: Near zero / no signal
+Hot Box,1.8550704378344497e-5,Group 5: Near zero / no signal
+World War Free,1.686043518669583e-5,Group 5: Near zero / no signal
+Flutter Guts,7.936085578400977e-6,Group 5: Near zero / no signal
+Battle Royale,0,Group 5: Near zero / no signal
+Discathon,0,Group 5: Near zero / no signal
